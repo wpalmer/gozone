@@ -44,23 +44,36 @@ func (rc RecordClass) String() string {
 type RecordType int
 
 const (
-	RecordType_UNKNOWN = 0  // unset
-	RecordType_A       = 1  // a host address
-	RecordType_NS      = 2  // an authoritative name server
-	RecordType_MD      = 3  // a mail destination (Obsolete - use MX)
-	RecordType_MF      = 4  // a mail forwarder (Obsolete - use MX)
-	RecordType_CNAME   = 5  // the canonical name for an alias
-	RecordType_SOA     = 6  // marks the start of zone authority
-	RecordType_MB      = 7  // a mailbox domain name (EXPERIMENTAL)
-	RecordType_MG      = 8  // a mail group member (EXPERIMENTAL)
-	RecordType_MR      = 9  // a mail rename domain name (EXPERIMENTAL)
-	RecordType_NULL    = 10 // a null RR (EXPERIMENTAL)
-	RecordType_WKS     = 11 // a well known service description
-	RecordType_PTR     = 12 // a domain name pointer
-	RecordType_HINFO   = 13 // host information
-	RecordType_MINFO   = 14 // mailbox or mail list information
-	RecordType_MX      = 15 // mail exchange
-	RecordType_TXT     = 16 // text strings
+	RecordType_UNKNOWN = iota
+	RecordType_A
+	RecordType_NS
+	RecordType_MD
+	RecordType_MF
+	RecordType_CNAME
+	RecordType_SOA
+	RecordType_MB
+	RecordType_MG
+	RecordType_MR
+	RecordType_NULL
+	RecordType_WKS
+	RecordType_PTR
+	RecordType_HINFO
+	RecordType_MINFO
+	RecordType_MX
+	RecordType_TXT
+	RecordType_AAAA
+	RecordType_AFSDB
+	RecordType_DNSKEY
+	RecordType_DS
+	RecordType_LOC
+	RecordType_NAPTR
+	RecordType_NSEC3
+	RecordType_NSEC3PARAM
+	RecordType_RP
+	RecordType_RRSIG
+	RecordType_SPF
+	RecordType_SRV
+	RecordType_SSHFP
 )
 
 func (rt RecordType) String() string {
@@ -97,6 +110,32 @@ func (rt RecordType) String() string {
 		return "MX"
 	case RecordType_TXT:
 		return "TXT"
+	case RecordType_AAAA:
+		return "AAAA"
+	case RecordType_AFSDB:
+		return "AFSDB"
+	case RecordType_DNSKEY:
+		return "DNSKEY"
+	case RecordType_DS:
+		return "DS"
+	case RecordType_LOC:
+		return "LOC"
+	case RecordType_NAPTR:
+		return "NAPTR"
+	case RecordType_NSEC3:
+		return "NSEC3"
+	case RecordType_NSEC3PARAM:
+		return "NSEC3PARAM"
+	case RecordType_RP:
+		return "RP"
+	case RecordType_RRSIG:
+		return "RRSIG"
+	case RecordType_SPF:
+		return "SPF"
+	case RecordType_SRV:
+		return "SRV"
+	case RecordType_SSHFP:
+		return "SSHFP"
 	}
 
 	return "[UNKNOWN]"
@@ -149,7 +188,6 @@ const (
 	scannerState_ParenComment
 	scannerState_ParenString
 	scannerState_ParenStringEscape
-	scannerState_ParenSpace
 )
 
 type Scanner struct {
@@ -386,6 +424,32 @@ func parseType(token string) (RecordType, error) {
 		return RecordType_MX, nil
 	case "TXT":
 		return RecordType_TXT, nil
+	case "AAAA":
+		return RecordType_AAAA, nil
+	case "AFSDB":
+		return RecordType_AFSDB, nil
+	case "DNSKEY":
+		return RecordType_DNSKEY, nil
+	case "DS":
+		return RecordType_DS, nil
+	case "LOC":
+		return RecordType_LOC, nil
+	case "NAPTR":
+		return RecordType_NAPTR, nil
+	case "NSEC3":
+		return RecordType_NSEC3, nil
+	case "NSEC3PARAM":
+		return RecordType_NSEC3PARAM, nil
+	case "RP":
+		return RecordType_RP, nil
+	case "RRSIG":
+		return RecordType_RRSIG, nil
+	case "SPF":
+		return RecordType_SPF, nil
+	case "SRV":
+		return RecordType_SRV, nil
+	case "SSHFP":
+		return RecordType_SSHFP, nil
 	default:
 		return 0, fmt.Errorf("Unknown Record Type '%s'", token)
 	}
