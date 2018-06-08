@@ -149,7 +149,6 @@ const (
 	scannerState_ParenComment
 	scannerState_ParenString
 	scannerState_ParenStringEscape
-	scannerState_ParenSpace
 )
 
 type Scanner struct {
