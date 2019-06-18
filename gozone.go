@@ -362,9 +362,11 @@ type scannerState int
 
 const (
 	scannerState_Default = iota
+	scannerState_DefaultEscape
 	scannerState_String
 	scannerState_StringEscape
 	scannerState_Paren
+	scannerState_ParenEscape
 	scannerState_Comment
 	scannerState_Space
 	scannerState_ParenComment
@@ -475,6 +477,13 @@ func (s *Scanner) nextToken() (string, error) {
 					s.state = scannerState_Paren
 					return "(", nil
 				}
+
+				if r == '\\' {
+					s.nextSize = 0
+					s.state = scannerState_DefaultEscape
+					_, _ = token.WriteRune(r)
+					continue
+				}
 			} else if s.state == scannerState_Paren {
 				if r == ')' {
 					if token.Len() > 0 {
@@ -484,6 +493,13 @@ func (s *Scanner) nextToken() (string, error) {
 					s.nextSize = 0
 					s.state = scannerState_Default
 					return ")", nil
+				}
+
+				if r == '\\' {
+					s.nextSize = 0
+					s.state = scannerState_ParenEscape
+					_, _ = token.WriteRune(r)
+					continue
 				}
 			}
 
@@ -546,12 +562,17 @@ func (s *Scanner) nextToken() (string, error) {
 			s.nextSize = 0
 			_, _ = token.WriteRune(r)
 
-		case scannerState_StringEscape, scannerState_ParenStringEscape:
+		case scannerState_DefaultEscape, scannerState_StringEscape, scannerState_ParenEscape, scannerState_ParenStringEscape:
 			s.nextSize = 0
-			if s.state == scannerState_StringEscape {
+			switch s.state {
+			case scannerState_DefaultEscape:
+				s.state = scannerState_Default
+			case scannerState_StringEscape:
 				s.state = scannerState_String
-			} else {
-				s.state = scannerState_ParenString
+			case scannerState_ParenEscape:
+				s.state = scannerState_Paren
+			case scannerState_ParenStringEscape:
+				s.state = scannerState_String
 			}
 			_, _ = token.WriteRune(r)
 
