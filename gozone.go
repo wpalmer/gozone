@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"unicode"
@@ -372,18 +373,43 @@ const (
 )
 
 type Scanner struct {
-	src      *bufio.Reader
-	state    scannerState
-	nextRune rune
-	nextSize int
+	src        *bufio.Reader
+	state      scannerState
+	origin     string
+	timeToLive int64
+	nextRune   rune
+	nextSize   int
 }
 
 func NewScanner(src io.Reader) *Scanner {
 	return &Scanner{
-		src:      bufio.NewReader(src),
-		nextRune: 0,
-		nextSize: 0,
+		src:        bufio.NewReader(src),
+		timeToLive: -1,
+		nextRune:   0,
+		nextSize:   0,
 	}
+}
+
+func (s *Scanner) SetOrigin(domain string) error {
+	if domain[len(domain)-1] != '.' {
+		return fmt.Errorf("Tried to set $ORIGIN to relative domain")
+	}
+
+	s.origin = domain
+	return nil
+}
+
+func (s *Scanner) SetTimeToLive(timeToLive int64) error {
+	if timeToLive < 0 {
+		timeToLive = -1
+	}
+
+	if timeToLive > math.MaxUint32 {
+		return fmt.Errorf("Tried to set $TTL to number greater than MaxUint32")
+	}
+
+	s.timeToLive = timeToLive
+	return nil
 }
 
 func (s *Scanner) nextToken() (string, error) {
@@ -752,6 +778,116 @@ func parseType(token string) (RecordType, error) {
 	}
 }
 
+func (s *Scanner) scanControlEntry(initial string) error {
+	switch initial {
+	case "$ORIGIN":
+		return s.scanControlEntryOrigin()
+	case "$TTL":
+		return s.scanControlEntryTTL()
+	default:
+		return fmt.Errorf("Unknown Control Entry '%s'", initial)
+	}
+}
+
+func (s *Scanner) scanControlEntryOrigin() error {
+	var hasDomain bool
+	var token string
+	var err error
+
+	for {
+		if token, err = s.nextToken(); err != nil {
+			if err == io.EOF {
+				if hasDomain {
+					break
+				}
+
+				return fmt.Errorf("Incomplete $ORIGIN control entry at end of file")
+			}
+
+			return err
+		}
+
+		if token[0] == ';' {
+			if hasDomain {
+				return nil
+			}
+
+			return fmt.Errorf("Incomplete $ORIGIN control entry ends in comment")
+		}
+
+		if token == "\n" {
+			if !hasDomain {
+				return fmt.Errorf("missing DomainName in $ORIGIN control entry")
+			}
+			break
+		}
+
+		if hasDomain {
+			return fmt.Errorf("Multiple domains found in $ORIGIN control entry")
+		}
+
+		if err = s.SetOrigin(token); err != nil {
+			return err
+		}
+
+		hasDomain = true
+	}
+
+	return nil
+}
+
+func (s *Scanner) scanControlEntryTTL() error {
+	var hasTTL bool
+	var token string
+	var err error
+
+	for {
+		if token, err = s.nextToken(); err != nil {
+			if err == io.EOF {
+				if hasTTL {
+					break
+				}
+
+				return fmt.Errorf("Incomplete $TTL control entry at end of file")
+			}
+
+			return err
+		}
+
+		if token[0] == ';' {
+			if hasTTL {
+				return nil
+			}
+
+			return fmt.Errorf("Incomplete $TTL control entry ends in comment")
+		}
+
+		if token == "\n" {
+			if !hasTTL {
+				return fmt.Errorf("missing TimeToLive in $TTL control entry")
+			}
+			break
+		}
+
+		if hasTTL {
+			return fmt.Errorf("Multiple TimeToLive found in $TTL control entry")
+		}
+
+		var i64 uint64
+		i64, err = strconv.ParseUint(token, 10, 32)
+		if err != nil {
+			return fmt.Errorf("Failed to parse TimeToLive in $TTL control entry: %s", err)
+		}
+
+		if err = s.SetTimeToLive(int64(i64)); err != nil {
+			return err
+		}
+		hasTTL = true
+	}
+
+	return nil
+}
+
 func (s *Scanner) Next(outrecord *Record) error {
 	var record Record
 	var token string
@@ -763,17 +899,37 @@ func (s *Scanner) Next(outrecord *Record) error {
 	var hasData bool
 
 	record.TimeToLive = -1
-	for { // ignore leading spaces / comments
+	for { // ignore leading spaces / comments / process control entries
 		if token, err = s.nextToken(); err != nil {
 			return err
 		}
 
-		if token != "\n" && token[0] != ';' {
+		if token[0] == '$' {
+			// control entry
+			if err = s.scanControlEntry(token); err != nil {
+				return err
+			}
+		}
+
+		if token != "\n" && token[0] != ';' && token[0] != '$' {
 			break
 		}
 	}
 
-	record.DomainName = token
+	domain := token
+	if domain == "@" {
+		if s.origin == "" {
+			return fmt.Errorf("Record for current domain specified when no $ORIGIN defined")
+		}
+		domain = s.origin
+	} else if domain[len(token)-1] != '.' {
+		if s.origin == "" {
+			return fmt.Errorf("Record relative-to-current domain specified when no $ORIGIN defined")
+		}
+
+		domain = fmt.Sprintf("%s.%s", token, s.origin)
+	}
+	record.DomainName = domain
 
 	for {
 		if token, err = s.nextToken(); err != nil {
@@ -796,7 +952,7 @@ func (s *Scanner) Next(outrecord *Record) error {
 				var i64 uint64
 				i64, err = strconv.ParseUint(token, 10, 32)
 				if err != nil {
-					record.TimeToLive = -1
+					record.TimeToLive = s.timeToLive
 				} else {
 					record.TimeToLive = int64(i64)
 					hasTTL = true
