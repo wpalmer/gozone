@@ -1,6 +1,7 @@
 package gozone
 
 import (
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -205,5 +206,176 @@ func TestBadTypeRecordFails(t *testing.T) {
 	err := s.Next(&r)
 	if err == nil {
 		t.Fatalf("Parsing of bad-type record did not return an error")
+	}
+}
+
+func TestOriginDefinesDefault(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("@ 300 IN A 192.168.1.1"))
+	err := s.SetOrigin("adomain.com.")
+	if err != nil {
+		t.Fatalf("Unexpected error when setting Origin: %s", err)
+	}
+
+	err = s.Next(&r)
+	if err != nil {
+		t.Fatalf("Parsing of default-domain record returned an error: %s", err)
+	}
+
+	if r.DomainName != "adomain.com." {
+		t.Fatalf("Parsing of default-domain record did not result in a Record with the default domain")
+	}
+}
+
+func TestOriginControlEntrySetsOrigin(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN adomain.com.\n@ 300 IN A 192.168.1.1"))
+
+	err := s.Next(&r)
+	if err != nil {
+		t.Fatalf("Unexpected error when setting Origin via $ORIGIN Control Entry: %s", err)
+	}
+
+	if s.origin != "adomain.com." {
+		t.Fatalf("Parsing of $ORIGIN control entry did not set the default origin")
+	}
+}
+
+func TestOriginControlEntryCanHaveComment(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN adomain.com. ; should be ignored\n@ 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err != nil {
+		t.Fatalf("Parsing of default-domain record returned an error: %s", err)
+	}
+
+	if r.DomainName != "adomain.com." {
+		t.Fatalf("Parsing of default-domain record did not result in a Record with the default domain")
+	}
+}
+
+func TestOriginDefinesRelative(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("www 300 IN A 192.168.1.1"))
+	err := s.SetOrigin("adomain.com.")
+	if err != nil {
+		t.Fatalf("Unexpected error when setting Origin: %s", err)
+	}
+
+	err = s.Next(&r)
+	if err != nil {
+		t.Fatalf("Parsing of relative record returned an error: %s", err)
+	}
+
+	if r.DomainName != "www.adomain.com." {
+		t.Fatalf("Parsing of relative record did not result in a Record within the default domain")
+	}
+}
+
+func TestOriginDoesNotImpactFullyQualified(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("www.example.com. 300 IN A 192.168.1.1"))
+	err := s.SetOrigin("adomain.com.")
+	if err != nil {
+		t.Fatalf("Unexpected error when setting Origin: %s", err)
+	}
+
+	err = s.Next(&r)
+	if err != nil {
+		t.Fatalf("Parsing of fully-qualified record returned an error: %s", err)
+	}
+
+	if r.DomainName != "www.example.com." {
+		t.Fatalf("Parsing of fully-qualified record with an $ORIGIN defined did not result in the entry's domain as-specified")
+	}
+}
+
+func TestOriginControlEntryRelativeFails(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN adomain.com\nwww 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of relative $ORIGIN control entry did not return an error")
+	}
+}
+
+func TestDefaultDomainWithoutOriginFails(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("@ 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of default domain entry when no $ORIGIN defined did not result in an error")
+	}
+}
+
+func TestRelativeDomainWithoutOriginFails(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("www 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of relative domain when no $ORIGIN defined did not result in an error")
+	}
+}
+
+func TestIncompleteOriginControlEntry(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN\nwww 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of incomplete $ORIGIN control entry did not result in an error")
+	}
+}
+
+func TestIncompleteOriginControlEntryComment(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN ;this should be ignored\nwww 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of incomplete $ORIGIN control entry (with comment) did not result in an error")
+	}
+}
+
+func TestIncompleteOriginControlEntryEOF(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of incomplete $ORIGIN control entry (at end of file) did not result in an error")
+	}
+}
+
+// This one may require some explanation. It is asserting two things:
+// 1) an $ORIGIN at the end of the file is not an error on its own
+// 2) the presence of an $ORIGIN control entry should not cause a record to be
+//    returned, ie: there should still be an error returned, but that error is
+//    merely the normal "EOF" error.
+func TestCompleteOriginControlEntryEOF(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN adomain.com."))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of a zone containing nothing but an $ORIGIN control entry did not result in an error")
+	}
+
+	if err != io.EOF {
+		t.Fatalf("Parsing of a zone containing nothing but an $ORIGIN control entry did not result in EOF error")
+	}
+}
+
+func TestMalformedOriginControlEntryMultipleDomains(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$ORIGIN adomain.com. andanother.com."))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of malformed $ORIGIN control entry (multiple domains) did not result in an error")
+	}
+}
+
+func TestUnknownControlEntryFails(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$UNKNOWN"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of unknown control entry did not result in an error")
 	}
 }

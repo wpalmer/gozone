@@ -154,6 +154,7 @@ const (
 type Scanner struct {
 	src      *bufio.Reader
 	state    scannerState
+	origin   string
 	nextRune rune
 	nextSize int
 }
@@ -164,6 +165,15 @@ func NewScanner(src io.Reader) *Scanner {
 		nextRune: 0,
 		nextSize: 0,
 	}
+}
+
+func (s *Scanner) SetOrigin(domain string) error {
+	if domain[len(domain)-1] != '.' {
+		return fmt.Errorf("Tried to set $ORIGIN to relative domain")
+	}
+
+	s.origin = domain
+	return nil
 }
 
 func (s *Scanner) nextToken() (string, error) {
@@ -390,6 +400,62 @@ func parseType(token string) (RecordType, error) {
 	}
 }
 
+func (s *Scanner) scanControlEntry(initial string) error {
+	switch initial {
+	case "$ORIGIN":
+		return s.scanControlEntryOrigin()
+	default:
+		return fmt.Errorf("Unknown Control Entry '%s'", initial)
+	}
+}
+
+func (s *Scanner) scanControlEntryOrigin() error {
+	var hasDomain bool
+	var token string
+	var err error
+
+	for {
+		if token, err = s.nextToken(); err != nil {
+			if err == io.EOF {
+				if hasDomain {
+					break
+				}
+
+				return fmt.Errorf("Incomplete $ORIGIN control entry at end of file")
+			}
+
+			return err
+		}
+
+		if token[0] == ';' {
+			if hasDomain {
+				return nil
+			}
+
+			return fmt.Errorf("Incomplete $ORIGIN control entry ends in comment")
+		}
+
+		if token == "\n" {
+			if !hasDomain {
+				return fmt.Errorf("missing DomainName in $ORIGIN control entry")
+			}
+			break
+		}
+
+		if hasDomain {
+			return fmt.Errorf("Multiple domains found in $ORIGIN control entry")
+		}
+
+		if err = s.SetOrigin(token); err != nil {
+			return err
+		}
+
+		hasDomain = true
+	}
+
+	return nil
+}
+
 func (s *Scanner) Next(outrecord *Record) error {
 	var record Record
 	var token string
@@ -401,17 +467,37 @@ func (s *Scanner) Next(outrecord *Record) error {
 	var hasData bool
 
 	record.TimeToLive = -1
-	for { // ignore leading spaces / comments
+	for { // ignore leading spaces / comments / process control entries
 		if token, err = s.nextToken(); err != nil {
 			return err
 		}
 
-		if token != "\n" && token[0] != ';' {
+		if token[0] == '$' {
+			// control entry
+			if err = s.scanControlEntry(token); err != nil {
+				return err
+			}
+		}
+
+		if token != "\n" && token[0] != ';' && token[0] != '$' {
 			break
 		}
 	}
 
-	record.DomainName = token
+	domain := token
+	if domain == "@" {
+		if s.origin == "" {
+			return fmt.Errorf("Record for current domain specified when no $ORIGIN defined")
+		}
+		domain = s.origin
+	} else if domain[len(token)-1] != '.' {
+		if s.origin == "" {
+			return fmt.Errorf("Record relative-to-current domain specified when no $ORIGIN defined")
+		}
+
+		domain = fmt.Sprintf("%s.%s", token, s.origin)
+	}
+	record.DomainName = domain
 
 	for {
 		if token, err = s.nextToken(); err != nil {
