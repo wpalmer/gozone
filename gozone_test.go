@@ -379,3 +379,162 @@ func TestUnknownControlEntryFails(t *testing.T) {
 		t.Fatalf("Parsing of unknown control entry did not result in an error")
 	}
 }
+
+func TestTimeToLiveDefinesDefault(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("adomain.com. IN A 192.168.1.1"))
+	err := s.SetTimeToLive(600)
+	if err != nil {
+		t.Fatalf("Unexpected error when setting TimeToLive: %s", err)
+	}
+
+	err = s.Next(&r)
+	if err != nil {
+		t.Fatalf("Parsing of TTL-less record returned an error: %s", err)
+	}
+
+	if r.TimeToLive != 600 {
+		t.Fatalf("Parsing of TTL-less record did not result in a Record with the default TTL")
+	}
+}
+
+func TestTimeToLiveControlEntrySetsTimeToLive(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL 600\nadomain.com. IN A 192.168.1.1"))
+
+	err := s.Next(&r)
+	if err != nil {
+		t.Fatalf("Unexpected error when setting TimeToLive via $TTL Control Entry: %s", err)
+	}
+
+	if s.timeToLive != 600 {
+		t.Fatalf("Parsing of $TTL control entry did not set the default TTL")
+	}
+}
+
+func TestTimeToLiveControlEntryCanHaveComment(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL 600 ; should be ignored\nadomain.com. IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err != nil {
+		t.Fatalf("Parsing of TTL-less record returned an error: %s", err)
+	}
+
+	if r.TimeToLive != 600 {
+		t.Fatalf("Parsing of TTL-less record did not result in a Record with the default TTL")
+	}
+}
+
+func TestTimeToLiveDoesNotImpactSpecified(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("www.example.com. 300 IN A 192.168.1.1"))
+	err := s.SetTimeToLive(600)
+	if err != nil {
+		t.Fatalf("Unexpected error when setting TimeToLive: %s", err)
+	}
+
+	err = s.Next(&r)
+	if err != nil {
+		t.Fatalf("Parsing of TTL-specified record returned an error: %s", err)
+	}
+
+	if r.TimeToLive != 300 {
+		t.Fatalf("Parsing of TTL-specified record a $TTL defined did not result in the entry's TTL as-specified")
+	}
+}
+
+func TestIncompleteTimeToLiveControlEntry(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL\nwww 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of incomplete $TTL control entry did not result in an error")
+	}
+}
+
+func TestIncompleteTimeToLiveControlEntryComment(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL ;this should be ignored\nwww 300 IN A 192.168.1.1"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of incomplete $TTL control entry (with comment) did not result in an error")
+	}
+}
+
+func TestIncompleteTimeToLiveControlEntryEOF(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of incomplete $TTL control entry (at end of file) did not result in an error")
+	}
+}
+
+func TestCompleteTimeToLiveControlEntryEOF(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL 600"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of a zone containing nothing but an $TTL control entry did not result in an error")
+	}
+
+	if err != io.EOF {
+		t.Fatalf("Parsing of a zone containing nothing but an $TTL control entry did not result in EOF error")
+	}
+}
+
+func TestMalformedTimeToLiveControlEntryMultipleTimeToLive(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL 600 300"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of malformed $TTL control entry (multiple time-to-live) did not result in an error")
+	}
+}
+
+func TestMalformedTimeToLiveControlEntryNonNumeric(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL aaa"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of malformed $TTL control entry (non-numeric) did not result in an error")
+	}
+}
+
+func TestMalformedTimeToLiveControlEntryNegative(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL -600"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of malformed $TTL control entry (negative) did not result in an error")
+	}
+}
+
+func TestMalformedTimeToLiveControlEntryTooLarge(t *testing.T) {
+	var r Record
+	s := NewScanner(strings.NewReader("$TTL 4294967296"))
+	err := s.Next(&r)
+	if err == nil {
+		t.Fatalf("Parsing of malformed $TTL control entry (number larger than MaxUint32) did not result in an error")
+	}
+}
+
+func TestSetTimeToLiveTooLargeFail(t *testing.T) {
+	s := NewScanner(strings.NewReader("adomain.com. IN A 192.168.1.1"))
+	err := s.SetTimeToLive(4294967296)
+	if err == nil {
+		t.Fatalf("Setting TimeToLive to a number larger than MaxUint32 did not result in an error")
+	}
+}
+
+func TestSetTimeToLiveTooSmallFolds(t *testing.T) {
+	s := NewScanner(strings.NewReader("adomain.com. IN A 192.168.1.1"))
+	err := s.SetTimeToLive(-2)
+	if err != nil {
+		t.Fatalf("Setting TimeToLive to a number smaller than -1 (ie, to indicate unspecified) resulted in an error")
+	}
+
+	if s.timeToLive != -1 {
+		t.Fatalf("Setting TimeToLive to a number smaller than -1 (ie, to indicate unspecified) did not fold the value to -1")
+	}
+}
