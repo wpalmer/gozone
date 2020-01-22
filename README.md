@@ -62,21 +62,35 @@ which in turn references RFCs:
  - [RFC8482](https://www.ietf.org/rfc/rfc8482.txt)
 
 
-Example:
+# Example
+
+This little go program reads the file "example.zone" and prints each record with its type, domain or subdomain and its content.
+
 ```go
-stream, _ := os.Open(zonefile)
-var record gozone.Record
-scanner := gozone.NewScanner(h)
+package main
 
-for {
-	err := scanner.Next(&record)
-	if err != nil {
-		break
-	}
+import (
+    "fmt"
+    "github.com/wpalmer/gozone"
+    "os"
+)
 
-	fmt.Printf("a '%s' Record for domain/subdomain '%s'",
-		record.Type,
-		record.DomainName,
-	)
+func main() {
+    stream, _ := os.Open("example.zone")
+    var record gozone.Record
+    scanner := gozone.NewScanner(stream)
+
+    for {
+        err := scanner.Next(&record)
+        if err != nil {
+            break
+        }
+
+        fmt.Printf("a '%s' Record for domain/subdomain '%s' with data '%s'\n",
+            record.Type,
+            record.DomainName,
+            record.Data,
+        )
+    }
 }
 ```
