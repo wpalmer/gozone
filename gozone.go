@@ -943,6 +943,11 @@ func (s *Scanner) Next(outrecord *Record) error {
 			return fmt.Errorf("Record for current domain specified when no $ORIGIN defined")
 		}
 		domain = s.origin
+		// this means that the token is the TTL; this record should inherit default origin and TTL should not be appended to DomainName
+	} else if i64, err := strconv.ParseInt(token, 10, 64); err == nil {
+		domain = s.origin
+		record.TimeToLive = i64
+		hasTTL = true
 	} else if domain[len(token)-1] != '.' {
 		if s.origin == "" {
 			return fmt.Errorf("Record relative-to-current domain specified when no $ORIGIN defined")

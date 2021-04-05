@@ -300,7 +300,7 @@ func TestOriginDefinesDefault(t *testing.T) {
 
 func TestOriginControlEntrySetsOrigin(t *testing.T) {
 	var r Record
-	s := NewScanner(strings.NewReader("$ORIGIN adomain.com.\n@ 300 IN A 192.168.1.1"))
+	s := NewScanner(strings.NewReader("$ORIGIN adomain.com.\n300 IN A 192.168.1.1"))
 
 	err := s.Next(&r)
 	if err != nil {
@@ -309,6 +309,10 @@ func TestOriginControlEntrySetsOrigin(t *testing.T) {
 
 	if s.origin != "adomain.com." {
 		t.Fatalf("Parsing of $ORIGIN control entry did not set the default origin")
+	}
+
+	if r.DomainName != "adomain.com." {
+		t.Fatalf("Parsing of $ORIGIN control entry did not set the default domain name")
 	}
 }
 
